@@ -1,0 +1,21 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "shcm.shsupercm.fabric.citresewn.mixin",
+  "refmap": "citresewn.refmap.json",
+  "plugin": "shcm.shsupercm.fabric.citresewn.config.CITResewnMixinConfiguration",
+  "compatibilityLevel": "JAVA_21",
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "client": [
+    "broken_paths.AbstractFileResourcePackMixin",
+    "AtlasPreparationMixin",
+    "AtlasLoaderMixin",
+    "broken_paths.IdentifierMixin",
+    "broken_paths.ResourcePackCompatibilityMixin",
+    "broken_paths.ReloadableResourceManagerImplMixin",
+    "ModelLoaderMixin",
+    "ResourceFinderMixin"
+  ]
+}

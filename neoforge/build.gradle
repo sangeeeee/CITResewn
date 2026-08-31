@@ -1,0 +1,173 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
+plugins {
+    id 'java'
+    id 'dev.architectury.loom' version '1.7.435'
+}
+
+version = project.mod_version
+group = project.mod_group
+
+base {
+    archivesName = 'citresewn-neoforge'
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.neoforged.net/releases/' }
+    maven { url = 'https://maven.architectury.dev/' }
+    maven { url = 'https://maven.fabricmc.net/' }
+    maven { url = 'https://plugins.gradle.org/m2/' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings loom.layered {
+        mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+        mappings "dev.architectury:yarn-mappings-patch-neoforge:${project.yarn_mappings_patch_neoforge}"
+    }
+    neoForge "net.neoforged:neoforge:${project.neoforge_version}"
+
+    // Source-retention-only annotation used by the shared Fabric sources.
+    // It is not packaged and creates no runtime dependency.
+    compileOnly 'io.shcm.shsupercm.fabric:FletchingTable:1.6'
+}
+
+def coreSources = objects.sourceDirectorySet('coreShared', 'CIT Resewn core sources')
+coreSources.srcDir '../src/main/java'
+coreSources.exclude 'shcm/shsupercm/fabric/citresewn/CITResewn.java'
+coreSources.exclude 'shcm/shsupercm/fabric/citresewn/CITResewnCommand.java'
+coreSources.exclude 'shcm/shsupercm/fabric/citresewn/cit/ActiveCITs.java'
+coreSources.exclude 'shcm/shsupercm/fabric/citresewn/cit/CITRegistry.java'
+coreSources.exclude 'shcm/shsupercm/fabric/citresewn/config/CITResewnConfig.java'
+coreSources.exclude 'shcm/shsupercm/fabric/citresewn/config/CITResewnConfigScreenFactory.java'
+coreSources.exclude 'shcm/shsupercm/fabric/citresewn/config/CITResewnMixinConfiguration.java'
+coreSources.exclude 'shcm/shsupercm/fabric/citresewn/config/CITResewnModMenu.java'
+coreSources.exclude 'shcm/shsupercm/fabric/citresewn/mixin/ChatScreenMixin.java'
+coreSources.exclude 'shcm/shsupercm/fabric/citresewn/mixin/broken_paths/IdentifierMixin.java'
+coreSources.exclude 'shcm/shsupercm/fabric/citresewn/pack/GlobalProperties.java'
+
+def defaultsSources = objects.sourceDirectorySet('defaultsShared', 'CIT Resewn defaults sources')
+defaultsSources.srcDir '../defaults/src/main/java'
+defaultsSources.exclude 'shcm/shsupercm/fabric/citresewn/defaults/CITResewnDefaultsCompatAPI.java'
+defaultsSources.exclude 'shcm/shsupercm/fabric/citresewn/defaults/config/CITResewnDefaultsConfig.java'
+defaultsSources.exclude 'shcm/shsupercm/fabric/citresewn/defaults/config/CITResewnDefaultsConfigScreenFactory.java'
+defaultsSources.exclude 'shcm/shsupercm/fabric/citresewn/defaults/config/CITResewnDefaultsModMenu.java'
+defaultsSources.exclude 'shcm/shsupercm/fabric/citresewn/defaults/mixin/types/armor/ArmorFeatureRendererMixin.java'
+
+def coreResources = objects.sourceDirectorySet('coreResources', 'CIT Resewn core resources')
+coreResources.srcDir '../src/main/resources'
+coreResources.exclude 'fabric.mod.json'
+coreResources.exclude 'citresewn.mixins.json'
+coreResources.exclude 'citresewn.accesswidener'
+
+def defaultsResources = objects.sourceDirectorySet('defaultsResources', 'CIT Resewn defaults resources')
+defaultsResources.srcDir '../defaults/src/main/resources'
+defaultsResources.exclude 'fabric.mod.json'
+defaultsResources.exclude 'citresewn-defaults.mixins.json'
+defaultsResources.exclude 'citresewn-defaults.accesswidener'
+
+sourceSets {
+    main {
+        java {
+            setSrcDirs([])
+            source coreSources
+            source defaultsSources
+            srcDir 'src/main/java'
+        }
+        resources {
+            setSrcDirs([])
+            source coreResources
+            source defaultsResources
+            srcDir 'src/main/resources'
+        }
+    }
+}
+
+loom {
+    mixin {
+        useLegacyMixinAp = true
+        defaultRefmapName = 'citresewn.refmap.json'
+    }
+
+    neoForge {
+        // Development sources use Yarn names. The packaged AT uses the
+        // Mojang names that NeoForge sees in production.
+        accessTransformer file('dev/accesstransformer.cfg')
+    }
+
+    runs {
+        client {
+            client()
+            runDir 'run'
+        }
+    }
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+tasks.processResources {
+    inputs.property 'version', project.version
+    filesMatching('META-INF/neoforge.mods.toml') {
+        expand version: project.version, minecraft_version: project.minecraft_version,
+                neoforge_version: project.neoforge_version
+    }
+}
+
+tasks.jar {
+    from rootProject.file('../LICENSE')
+}
+
+// NeoForge production uses Mojang names, while Architectury Loom remaps the
+// development runtime to Yarn names. Keep the packaged refmap in Mojang names
+// and put an identity refmap first on the development classpath only.
+def productionRefmap = layout.buildDirectory.file('classes/java/main/citresewn.refmap.json')
+def productionRefmapBackup = layout.buildDirectory.file('dev-refmap/citresewn.production.refmap.json')
+tasks.register('prepareDevRefmap') {
+    dependsOn tasks.compileJava
+    inputs.file productionRefmap
+    outputs.file productionRefmapBackup
+    outputs.upToDateWhen { false }
+
+    doLast {
+        def refmap = new JsonSlurper().parse(inputs.files.singleFile)
+        def backup = outputs.files.singleFile
+        backup.parentFile.mkdirs()
+        backup.bytes = inputs.files.singleFile.bytes
+
+        refmap.mappings.each { ignoredMixin, mappings ->
+            mappings.replaceAll { sourceReference, ignoredRuntimeReference -> sourceReference }
+        }
+        refmap.data?.each { ignoredContext, mixins ->
+            mixins.each { ignoredMixin, mappings ->
+                mappings.replaceAll { sourceReference, ignoredRuntimeReference -> sourceReference }
+            }
+        }
+
+        inputs.files.singleFile.text = JsonOutput.prettyPrint(JsonOutput.toJson(refmap))
+    }
+}
+
+tasks.register('restoreProductionRefmap') {
+    mustRunAfter tasks.prepareDevRefmap
+    onlyIf { productionRefmapBackup.get().asFile.exists() }
+
+    doLast {
+        productionRefmap.get().asFile.bytes = productionRefmapBackup.get().asFile.bytes
+        productionRefmapBackup.get().asFile.delete()
+    }
+}
+
+tasks.named('runClient', JavaExec) {
+    dependsOn tasks.prepareDevRefmap
+    finalizedBy tasks.restoreProductionRefmap
+}
